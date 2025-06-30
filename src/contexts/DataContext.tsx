@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { useAuth } from './AuthContext';
-import { supabase, LocalStorageDB, AutoSync } from '../lib/supabase';
+import { supabase, LocalStorageDB, AutoSync, checkSupabaseConnection, isSupabaseConfigured } from '../lib/supabase';
 import toast from 'react-hot-toast';
 
 interface Product {
@@ -69,6 +69,7 @@ interface DataContextType {
   rechargeRequests: RechargeRequest[];
   loading: boolean;
   isOnline: boolean;
+  supabaseConnected: boolean;
   addProduct: (product: Omit<Product, 'id' | 'createdAt' | 'stock'>) => Promise<void>;
   updateProduct: (id: string, updates: Partial<Product>) => Promise<void>;
   deleteProduct: (id: string) => Promise<void>;
@@ -97,6 +98,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   const [rechargeRequests, setRechargeRequests] = useState<RechargeRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const [supabaseConnected, setSupabaseConnected] = useState(false);
   
   const localDB = LocalStorageDB.getInstance();
 
@@ -110,37 +112,42 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
 
     loadData();
     
-    // Configurar subscripciones en tiempo real solo si está online
+    // Configurar subscripciones en tiempo real solo si Supabase está configurado y conectado
     let subscriptions: any[] = [];
     
-    if (isOnline) {
-      try {
-        const productsSubscription = supabase
-          .channel('products_changes')
-          .on('postgres_changes', { event: '*', schema: 'public', table: 'products' }, () => {
-            loadProducts();
-          })
-          .subscribe();
+    const setupRealtimeSubscriptions = async () => {
+      if (isSupabaseConfigured && await checkSupabaseConnection()) {
+        try {
+          const productsSubscription = supabase
+            .channel('products_changes')
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'products' }, () => {
+              loadProducts();
+            })
+            .subscribe();
 
-        const ordersSubscription = supabase
-          .channel('orders_changes')
-          .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => {
-            loadOrders();
-          })
-          .subscribe();
+          const ordersSubscription = supabase
+            .channel('orders_changes')
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, () => {
+              loadOrders();
+            })
+            .subscribe();
 
-        const rechargeSubscription = supabase
-          .channel('recharge_changes')
-          .on('postgres_changes', { event: '*', schema: 'public', table: 'recharge_requests' }, () => {
-            loadRechargeRequests();
-          })
-          .subscribe();
+          const rechargeSubscription = supabase
+            .channel('recharge_changes')
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'recharge_requests' }, () => {
+              loadRechargeRequests();
+            })
+            .subscribe();
 
-        subscriptions = [productsSubscription, ordersSubscription, rechargeSubscription];
-      } catch (error) {
-        console.log('Subscripciones en tiempo real no disponibles - modo offline');
+          subscriptions = [productsSubscription, ordersSubscription, rechargeSubscription];
+          console.log('✅ Subscripciones en tiempo real configuradas');
+        } catch (error) {
+          console.log('📱 Subscripciones en tiempo real no disponibles - continuando en modo local');
+        }
       }
-    }
+    };
+
+    setupRealtimeSubscriptions();
 
     return () => {
       window.removeEventListener('online', handleOnline);
@@ -152,21 +159,28 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   const loadData = async () => {
     setLoading(true);
     try {
-      if (isOnline) {
+      // Verificar conectividad con Supabase
+      const supabaseAvailable = isSupabaseConfigured && isOnline && await checkSupabaseConnection();
+      setSupabaseConnected(supabaseAvailable);
+
+      if (supabaseAvailable) {
+        console.log('🌐 Cargando datos desde Supabase...');
         // Intentar cargar desde Supabase
-        await Promise.all([
+        await Promise.allSettled([
           loadProducts(),
           loadOrders(),
           loadTransactions(),
           loadRechargeRequests()
         ]);
       } else {
+        console.log('📱 Cargando datos desde almacenamiento local...');
         // Cargar desde almacenamiento local
         loadLocalData();
       }
     } catch (error) {
-      console.error('Error loading data from Supabase, falling back to local:', error);
+      console.error('Error loading data, falling back to local:', error);
       loadLocalData();
+      setSupabaseConnected(false);
     } finally {
       setLoading(false);
     }
@@ -260,6 +274,11 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   };
 
   const loadProducts = async () => {
+    if (!supabaseConnected) {
+      loadLocalData();
+      return;
+    }
+
     try {
       const { data: productsData, error: productsError } = await supabase
         .from('products')
@@ -300,12 +319,17 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       localDB.saveProducts(productsWithStock);
       localDB.saveStockItems(stockData);
     } catch (error) {
-      console.error('Error loading products:', error);
+      console.error('Error loading products from Supabase:', error);
+      setSupabaseConnected(false);
       loadLocalData();
     }
   };
 
   const loadOrders = async () => {
+    if (!supabaseConnected) {
+      return;
+    }
+
     try {
       const { data, error } = await supabase
         .from('orders')
@@ -334,11 +358,16 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       setOrders(ordersData);
       localDB.saveOrders(ordersData);
     } catch (error) {
-      console.error('Error loading orders:', error);
+      console.error('Error loading orders from Supabase:', error);
+      setSupabaseConnected(false);
     }
   };
 
   const loadTransactions = async () => {
+    if (!supabaseConnected) {
+      return;
+    }
+
     try {
       const { data, error } = await supabase
         .from('transactions')
@@ -361,11 +390,16 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       setTransactions(transactionsData);
       localDB.saveTransactions(transactionsData);
     } catch (error) {
-      console.error('Error loading transactions:', error);
+      console.error('Error loading transactions from Supabase:', error);
+      setSupabaseConnected(false);
     }
   };
 
   const loadRechargeRequests = async () => {
+    if (!supabaseConnected) {
+      return;
+    }
+
     try {
       const { data, error } = await supabase
         .from('recharge_requests')
@@ -392,7 +426,8 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       setRechargeRequests(requestsData);
       localDB.saveRechargeRequests(requestsData);
     } catch (error) {
-      console.error('Error loading recharge requests:', error);
+      console.error('Error loading recharge requests from Supabase:', error);
+      setSupabaseConnected(false);
     }
   };
 
@@ -405,7 +440,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         stock: []
       };
 
-      if (isOnline) {
+      if (supabaseConnected) {
         try {
           const { data, error } = await supabase
             .from('products')
@@ -435,6 +470,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
             });
         } catch (error) {
           console.log('Guardando producto localmente debido a error de conexión');
+          setSupabaseConnected(false);
         }
       }
 
@@ -452,7 +488,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
 
   const updateProduct = async (id: string, updates: Partial<Product>) => {
     try {
-      if (isOnline) {
+      if (supabaseConnected) {
         try {
           const { error } = await supabase
             .from('products')
@@ -469,6 +505,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
           if (error) throw error;
         } catch (error) {
           console.log('Actualizando producto localmente debido a error de conexión');
+          setSupabaseConnected(false);
         }
       }
 
@@ -488,7 +525,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
 
   const deleteProduct = async (id: string) => {
     try {
-      if (isOnline) {
+      if (supabaseConnected) {
         try {
           // Eliminar stock items primero
           await supabase
@@ -517,6 +554,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
             });
         } catch (error) {
           console.log('Eliminando producto localmente debido a error de conexión');
+          setSupabaseConnected(false);
         }
       }
 
@@ -550,7 +588,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         created_at: new Date().toISOString()
       };
 
-      if (isOnline) {
+      if (supabaseConnected) {
         try {
           const { data, error } = await supabase
             .from('stock_items')
@@ -566,6 +604,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
           newStockItem.id = data.id;
         } catch (error) {
           console.log('Guardando stock localmente debido a error de conexión');
+          setSupabaseConnected(false);
         }
       }
 
@@ -631,7 +670,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         status: 'active' as const
       };
 
-      if (isOnline) {
+      if (supabaseConnected) {
         try {
           // Marcar stock como vendido
           await supabase
@@ -681,6 +720,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
             });
         } catch (error) {
           console.log('Procesando compra localmente debido a error de conexión');
+          setSupabaseConnected(false);
         }
       }
 
@@ -735,7 +775,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         createdAt: new Date()
       };
 
-      if (isOnline) {
+      if (supabaseConnected) {
         try {
           const { error } = await supabase
             .from('transactions')
@@ -750,6 +790,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
           if (error) throw error;
         } catch (error) {
           console.log('Guardando transacción localmente debido a error de conexión');
+          setSupabaseConnected(false);
         }
       }
 
@@ -775,7 +816,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
         createdAt: new Date()
       };
 
-      if (isOnline) {
+      if (supabaseConnected) {
         try {
           const { data, error } = await supabase
             .from('recharge_requests')
@@ -792,6 +833,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
           requestData.id = data.id;
         } catch (error) {
           console.log('Guardando solicitud localmente debido a error de conexión');
+          setSupabaseConnected(false);
         }
       }
 
@@ -812,7 +854,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       const request = rechargeRequests.find(r => r.id === requestId);
       if (!request) throw new Error('Solicitud no encontrada');
 
-      if (isOnline) {
+      if (supabaseConnected) {
         try {
           // Actualizar estado de solicitud
           await supabase
@@ -852,6 +894,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
             });
         } catch (error) {
           console.log('Procesando aprobación localmente debido a error de conexión');
+          setSupabaseConnected(false);
         }
       }
 
@@ -869,7 +912,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
 
   const rejectRecharge = async (requestId: string) => {
     try {
-      if (isOnline) {
+      if (supabaseConnected) {
         try {
           await supabase
             .from('recharge_requests')
@@ -880,6 +923,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
             .eq('id', requestId);
         } catch (error) {
           console.log('Procesando rechazo localmente debido a error de conexión');
+          setSupabaseConnected(false);
         }
       }
 
@@ -897,7 +941,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
 
   const approveUser = async (userId: string) => {
     try {
-      if (isOnline) {
+      if (supabaseConnected) {
         try {
           const { error } = await supabase
             .from('users')
@@ -910,6 +954,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
           if (error) throw error;
         } catch (error) {
           console.log('Aprobando usuario localmente debido a error de conexión');
+          setSupabaseConnected(false);
         }
       }
 
@@ -922,7 +967,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
 
   const rejectUser = async (userId: string) => {
     try {
-      if (isOnline) {
+      if (supabaseConnected) {
         try {
           const { error } = await supabase
             .from('users')
@@ -932,6 +977,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
           if (error) throw error;
         } catch (error) {
           console.log('Rechazando usuario localmente debido a error de conexión');
+          setSupabaseConnected(false);
         }
       }
 
@@ -944,7 +990,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
 
   const getAllUsers = async () => {
     try {
-      if (isOnline) {
+      if (supabaseConnected) {
         const { data, error } = await supabase
           .from('users')
           .select('*')
@@ -974,6 +1020,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       }
     } catch (error) {
       console.error('Error getting users:', error);
+      setSupabaseConnected(false);
       return localDB.getUsers();
     }
   };
@@ -1041,6 +1088,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
       rechargeRequests,
       loading,
       isOnline,
+      supabaseConnected,
       addProduct,
       updateProduct,
       deleteProduct,

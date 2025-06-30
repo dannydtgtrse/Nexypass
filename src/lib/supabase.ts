@@ -4,6 +4,13 @@ import { createClient } from '@supabase/supabase-js'
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://demo.supabase.co'
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'demo-key'
 
+// Verificar si las variables de entorno están configuradas correctamente
+const isSupabaseConfigured = 
+  import.meta.env.VITE_SUPABASE_URL && 
+  import.meta.env.VITE_SUPABASE_ANON_KEY &&
+  import.meta.env.VITE_SUPABASE_URL !== 'https://demo.supabase.co' &&
+  import.meta.env.VITE_SUPABASE_ANON_KEY !== 'demo-key';
+
 // Cliente principal de Supabase
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
@@ -22,6 +29,35 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     }
   }
 })
+
+// Función para verificar conectividad con Supabase
+export const checkSupabaseConnection = async (): Promise<boolean> => {
+  if (!isSupabaseConfigured) {
+    console.log('📱 Supabase no configurado - usando modo local');
+    return false;
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from('users')
+      .select('count')
+      .limit(1);
+    
+    if (error) {
+      console.log('❌ Error de conexión Supabase:', error.message);
+      return false;
+    }
+    
+    console.log('✅ Conexión Supabase exitosa');
+    return true;
+  } catch (error) {
+    console.log('❌ Supabase no disponible:', error);
+    return false;
+  }
+};
+
+// Exportar estado de configuración
+export { isSupabaseConfigured };
 
 // Sistema de almacenamiento local como fallback
 export class LocalStorageDB {
@@ -107,6 +143,7 @@ export class AutoSync {
   private localDB = LocalStorageDB.getInstance();
   private syncInterval: NodeJS.Timeout | null = null;
   private isOnline = navigator.onLine;
+  private supabaseAvailable = false;
 
   static getInstance(): AutoSync {
     if (!AutoSync.instance) {
@@ -117,34 +154,52 @@ export class AutoSync {
 
   constructor() {
     this.setupEventListeners();
+    this.checkSupabaseAvailability();
     this.startAutoSync();
+  }
+
+  private async checkSupabaseAvailability(): Promise<void> {
+    this.supabaseAvailable = await checkSupabaseConnection();
   }
 
   private setupEventListeners(): void {
     window.addEventListener('online', () => {
       this.isOnline = true;
-      this.syncToSupabase();
+      this.checkSupabaseAvailability().then(() => {
+        if (this.supabaseAvailable) {
+          this.syncToSupabase();
+        }
+      });
     });
 
     window.addEventListener('offline', () => {
       this.isOnline = false;
+      this.supabaseAvailable = false;
     });
   }
 
   private startAutoSync(): void {
-    // Sincronizar cada 30 segundos si está online
-    this.syncInterval = setInterval(() => {
+    // Sincronizar cada 30 segundos si está online y Supabase disponible
+    this.syncInterval = setInterval(async () => {
       if (this.isOnline) {
-        this.syncToSupabase();
+        await this.checkSupabaseAvailability();
+        if (this.supabaseAvailable) {
+          this.syncToSupabase();
+        }
       }
     }, 30000);
   }
 
   private async syncToSupabase(): Promise<void> {
+    if (!this.supabaseAvailable) return;
+
     try {
       // Verificar conexión a Supabase
-      const { data, error } = await supabase.from('users').select('count').limit(1);
-      if (error) throw error;
+      const isConnected = await checkSupabaseConnection();
+      if (!isConnected) {
+        this.supabaseAvailable = false;
+        return;
+      }
 
       // Si la conexión es exitosa, sincronizar datos locales
       await this.syncUsers();
@@ -155,7 +210,8 @@ export class AutoSync {
       
       console.log('✅ Sincronización automática completada');
     } catch (error) {
-      console.log('📱 Modo offline - usando almacenamiento local');
+      console.log('📱 Error en sincronización - continuando en modo local');
+      this.supabaseAvailable = false;
     }
   }
 
