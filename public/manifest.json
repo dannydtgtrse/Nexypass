@@ -1,0 +1,21 @@
+{
+  "name": "NexyPass v13.0 - Plataforma Digital Premium",
+  "short_name": "NexyPass",
+  "description": "Plataforma profesional para la venta de productos digitales premium con sistema auto-solucionador",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0F172A",
+  "theme_color": "#3B82F6",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/favicon.ico",
+      "sizes": "64x64 32x32 24x24 16x16",
+      "type": "image/x-icon"
+    }
+  ],
+  "categories": ["business", "productivity", "utilities"],
+  "lang": "es",
+  "scope": "/",
+  "prefer_related_applications": false
+}

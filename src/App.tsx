@@ -4,12 +4,13 @@ import { ConnectionProvider } from './contexts/ConnectionContext';
 import { AuthProvider } from './contexts/AuthContext';
 import { DataProvider } from './contexts/DataContext';
 import { SocketProvider } from './contexts/SocketContext';
+import ErrorBoundary from './components/ErrorBoundary';
 import ConnectionOverlay from './components/ConnectionOverlay';
 import AuthScreen from './screens/AuthScreen';
 import UserDashboard from './screens/UserDashboard';
 import ProviderDashboard from './screens/ProviderDashboard';
 import { useAuth } from './hooks/useAuth';
-import { Clock, X } from 'lucide-react';
+import { Clock, X, Shield, Zap } from 'lucide-react';
 
 function AppContent() {
   const { user, loading, logout } = useAuth();
@@ -18,9 +19,16 @@ function AppContent() {
     return (
       <div className="h-screen flex items-center justify-center bg-slate-900">
         <div className="text-center">
-          <div className="w-16 h-16 border-4 border-nexy-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4 glow-blue"></div>
-          <p className="text-gray-300 font-medium">Cargando NexyPass...</p>
-          <p className="text-gray-500 text-sm mt-2">Versión 13.0</p>
+          <div className="w-20 h-20 bg-gradient-to-r from-nexy-blue-400 to-nexy-blue-600 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-glow-blue-strong">
+            <Shield className="h-10 w-10 text-white" />
+          </div>
+          <div className="w-16 h-16 border-4 border-nexy-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <h1 className="text-2xl font-bold text-gray-50 mb-2">NexyPass v13.0</h1>
+          <p className="text-gray-300 font-medium mb-2">Iniciando Sistema Auto-Solucionador...</p>
+          <div className="flex items-center justify-center text-sm text-nexy-blue-400">
+            <Zap className="h-4 w-4 mr-1 animate-pulse" />
+            <span>Arquitectura "Siempre Conectado"</span>
+          </div>
         </div>
       </div>
     );
@@ -60,6 +68,16 @@ function AppContent() {
                     <p className="text-gray-300 mb-6">
                       Tu cuenta está siendo revisada por el administrador. Recibirás acceso una vez que sea aprobada.
                     </p>
+                    
+                    <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-3 mb-6">
+                      <p className="text-sm text-yellow-300 font-medium">
+                        📱 Modo Offline Disponible
+                      </p>
+                      <p className="text-xs text-yellow-400 mt-1">
+                        Tus datos se guardan localmente y se sincronizarán automáticamente
+                      </p>
+                    </div>
+                    
                     <button
                       onClick={() => window.location.reload()}
                       className="w-full bg-gradient-to-r from-nexy-blue-400 to-nexy-blue-600 text-white py-3 px-4 rounded-xl font-semibold hover:from-nexy-blue-500 hover:to-nexy-blue-700 transition-all shadow-glow-blue transform hover:scale-105"
@@ -82,15 +100,17 @@ function AppContent() {
 
 function App() {
   return (
-    <ConnectionProvider>
-      <AuthProvider>
-        <DataProvider>
-          <SocketProvider>
-            <AppContent />
-          </SocketProvider>
-        </DataProvider>
-      </AuthProvider>
-    </ConnectionProvider>
+    <ErrorBoundary>
+      <ConnectionProvider>
+        <AuthProvider>
+          <DataProvider>
+            <SocketProvider>
+              <AppContent />
+            </SocketProvider>
+          </DataProvider>
+        </AuthProvider>
+      </ConnectionProvider>
+    </ErrorBoundary>
   );
 }
 

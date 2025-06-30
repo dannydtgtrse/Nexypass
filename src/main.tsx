@@ -4,6 +4,39 @@ import { BrowserRouter } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import App from './App.tsx';
 import './index.css';
+import './utils/autoFixer'; // Inicializar auto-solucionador
+
+// Configuración global para manejo de errores
+window.addEventListener('error', (event) => {
+  console.error('Error global capturado:', event.error);
+  
+  // Auto-recuperación para errores críticos
+  if (event.error?.message?.includes('ChunkLoadError') || 
+      event.error?.message?.includes('Loading chunk')) {
+    console.log('🔧 Auto-Fix: Recargando por error de chunk');
+    window.location.reload();
+  }
+});
+
+window.addEventListener('unhandledrejection', (event) => {
+  console.error('Promise rechazada no manejada:', event.reason);
+  
+  // Prevenir que el error se propague
+  event.preventDefault();
+});
+
+// Configuración de Service Worker para modo offline
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js')
+      .then((registration) => {
+        console.log('SW registrado: ', registration);
+      })
+      .catch((registrationError) => {
+        console.log('SW registro falló: ', registrationError);
+      });
+  });
+}
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
