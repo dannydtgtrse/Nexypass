@@ -10,11 +10,11 @@ import {
   AlertTriangle,
   Copy,
   Eye,
-  EyeOff
+  EyeOff,
+  RefreshCw
 } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
 import { useData } from '../../contexts/DataContext';
-import { useSocket } from '../../contexts/SocketContext';
 import toast from 'react-hot-toast';
 
 const countries = [
@@ -25,21 +25,28 @@ const countries = [
   { code: '+52', name: 'México', flag: '🇲🇽' },
   { code: '+593', name: 'Ecuador', flag: '🇪🇨' },
   { code: '+591', name: 'Bolivia', flag: '🇧🇴' },
+  { code: '+595', name: 'Paraguay', flag: '🇵🇾' },
+  { code: '+598', name: 'Uruguay', flag: '🇺🇾' },
+  { code: '+58', name: 'Venezuela', flag: '🇻🇪' },
 ];
 
 export default function UserStore() {
-  const { user, updateBalance } = useAuth();
-  const { products, purchaseProduct, getAvailableStock } = useData();
-  const { sendMessage } = useSocket();
+  const { user, updateBalance, refreshUser } = useAuth();
+  const { products, purchaseProduct, getAvailableStock, requestRecharge, loadData } = useData();
   const [selectedProduct, setSelectedProduct] = useState<any>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('');
   const [showPurchaseModal, setShowPurchaseModal] = useState(false);
   const [showInsufficientFunds, setShowInsufficientFunds] = useState(false);
+  const [showRechargeModal, setShowRechargeModal] = useState(false);
   const [customerData, setCustomerData] = useState({
     name: '',
     countryCode: '+51',
     phone: ''
+  });
+  const [rechargeData, setRechargeData] = useState({
+    amount: '',
+    method: 'bank'
   });
 
   const categories = ['Todos', ...Array.from(new Set(products.map(p => p.category).filter(Boolean)))];
@@ -80,7 +87,7 @@ export default function UserStore() {
     try {
       // Update user balance
       const newBalance = (user?.walletBalance || 0) - selectedProduct.price;
-      updateBalance(newBalance);
+      await updateBalance(newBalance);
 
       // Create order
       const order = await purchaseProduct(selectedProduct.id, customerData);
@@ -111,13 +118,6 @@ Hola *${customerData.name}*, aquí están los detalles de tu cuenta:
       const whatsappUrl = `https://wa.me/${customerData.countryCode.replace('+', '')}${customerData.phone}?text=${encodeURIComponent(message)}`;
       window.open(whatsappUrl, '_blank');
 
-      // Send WebSocket notification
-      sendMessage('purchase_completed', {
-        productId: selectedProduct.id,
-        userId: user?.id,
-        amount: selectedProduct.price
-      });
-
       setShowPurchaseModal(false);
       setSelectedProduct(null);
       setCustomerData({ name: '', countryCode: '+51', phone: '' });
@@ -126,8 +126,28 @@ Hola *${customerData.name}*, aquí están los detalles de tu cuenta:
         icon: '🎉',
         duration: 5000,
       });
+
+      // Refresh user data
+      await refreshUser();
     } catch (error) {
+      console.error('Purchase error:', error);
       toast.error('Error al procesar la compra');
+    }
+  };
+
+  const handleRequestRecharge = async () => {
+    const amount = parseFloat(rechargeData.amount);
+    if (isNaN(amount) || amount <= 0) {
+      toast.error('Ingresa un monto válido');
+      return;
+    }
+
+    try {
+      await requestRecharge(amount, rechargeData.method);
+      setShowRechargeModal(false);
+      setRechargeData({ amount: '', method: 'bank' });
+    } catch (error) {
+      console.error('Recharge request error:', error);
     }
   };
 
@@ -143,18 +163,24 @@ Hola *${customerData.name}*, aquí están los detalles de tu cuenta:
 
   const goToWallet = () => {
     setShowInsufficientFunds(false);
-    toast('Función de billetera próximamente', {
-      icon: '💰',
-      duration: 3000,
-    });
+    setShowRechargeModal(true);
   };
 
   return (
     <div className="p-4 space-y-6 mobile-padding">
       {/* Header */}
-      <div className="animate-fade-in">
-        <h1 className="text-2xl font-bold text-gray-50">Tienda NexyPass</h1>
-        <p className="text-gray-400">Productos digitales premium</p>
+      <div className="flex items-center justify-between animate-fade-in">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-50">Tienda NexyPass</h1>
+          <p className="text-gray-400">Productos digitales premium</p>
+        </div>
+        <button
+          onClick={loadData}
+          className="bg-gradient-to-r from-nexy-blue-400 to-nexy-blue-600 text-white px-4 py-2 rounded-xl font-semibold hover:from-nexy-blue-500 hover:to-nexy-blue-700 transition-all flex items-center shadow-glow-blue transform hover:scale-105"
+        >
+          <RefreshCw className="h-4 w-4 mr-2" />
+          Actualizar
+        </button>
       </div>
 
       {/* Balance Card */}
@@ -164,7 +190,15 @@ Hola *${customerData.name}*, aquí están los detalles de tu cuenta:
             <p className="text-blue-100">Tu Saldo Disponible</p>
             <p className="text-3xl font-bold">S/ {user?.walletBalance?.toFixed(2) || '0.00'}</p>
           </div>
-          <Wallet className="h-12 w-12 text-blue-200" />
+          <div className="flex items-center space-x-2">
+            <button
+              onClick={() => setShowRechargeModal(true)}
+              className="bg-white bg-opacity-20 hover:bg-opacity-30 text-white px-4 py-2 rounded-lg font-medium transition-colors flex items-center"
+            >
+              <Wallet className="h-4 w-4 mr-2" />
+              Recargar
+            </button>
+          </div>
         </div>
       </div>
 
@@ -439,7 +473,7 @@ Hola *${customerData.name}*, aquí están los detalles de tu cuenta:
                 className="w-full px-4 py-3 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-lg hover:from-green-600 hover:to-emerald-700 transition-all flex items-center justify-center font-semibold shadow-glow-green transform hover:scale-105"
               >
                 <Wallet className="h-5 w-5 mr-2" />
-                Ir a Mi Billetera para Recargar
+                Solicitar Recarga de Saldo
               </button>
               
               <button
@@ -447,6 +481,77 @@ Hola *${customerData.name}*, aquí están los detalles de tu cuenta:
                 className="w-full px-4 py-2 border border-slate-600 text-gray-300 rounded-lg hover:bg-slate-700 transition-colors"
               >
                 Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Recharge Modal */}
+      {showRechargeModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-slate-800 border border-slate-700 rounded-2xl p-6 w-full max-w-md shadow-glow-blue animate-slide-up">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-bold text-gray-50">Solicitar Recarga</h3>
+              <button
+                onClick={() => setShowRechargeModal(false)}
+                className="p-2 text-gray-400 hover:text-gray-300 hover:bg-slate-700 rounded-lg transition-colors"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-semibold text-gray-300 mb-1">
+                  Monto a Recargar (S/)
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={rechargeData.amount}
+                  onChange={(e) => setRechargeData({ ...rechargeData, amount: e.target.value })}
+                  className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-gray-50 placeholder-gray-400 focus:ring-2 focus:ring-nexy-blue-400 focus:border-transparent transition-all"
+                  placeholder="0.00"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-gray-300 mb-1">
+                  Método de Pago
+                </label>
+                <select
+                  value={rechargeData.method}
+                  onChange={(e) => setRechargeData({ ...rechargeData, method: e.target.value })}
+                  className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-gray-50 focus:ring-2 focus:ring-nexy-blue-400 focus:border-transparent transition-all"
+                >
+                  <option value="bank">Transferencia Bancaria</option>
+                  <option value="yape">Yape</option>
+                  <option value="plin">Plin</option>
+                </select>
+              </div>
+
+              <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-3">
+                <p className="text-sm text-yellow-300">
+                  <strong>Importante:</strong> Tu solicitud será revisada por el administrador. 
+                  Recibirás una notificación cuando sea aprobada.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex space-x-3 mt-6">
+              <button
+                onClick={() => setShowRechargeModal(false)}
+                className="flex-1 px-4 py-2 border border-slate-600 text-gray-300 rounded-lg hover:bg-slate-700 transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleRequestRecharge}
+                className="flex-1 px-4 py-2 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-lg hover:from-green-600 hover:to-emerald-700 transition-all flex items-center justify-center shadow-glow-green transform hover:scale-105"
+              >
+                <Wallet className="h-4 w-4 mr-2" />
+                Solicitar
               </button>
             </div>
           </div>

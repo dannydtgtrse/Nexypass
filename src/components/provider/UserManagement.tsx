@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Users, 
   UserCheck, 
@@ -14,8 +14,11 @@ import {
   X,
   Clock,
   CheckCircle,
-  XCircle
+  XCircle,
+  RefreshCw
 } from 'lucide-react';
+import { useData } from '../../contexts/DataContext';
+import { useAuth } from '../../hooks/useAuth';
 import toast from 'react-hot-toast';
 
 interface User {
@@ -31,27 +34,32 @@ interface User {
   isPending: boolean;
 }
 
-const mockUsers: User[] = [
-  {
-    id: '1',
-    username: 'usuario123',
-    email: 'usuario123@email.com',
-    walletBalance: 0.00,
-    totalSpent: 0.00,
-    role: 'user',
-    joinDate: '2024-01-15',
-    lastActivity: 'Nunca',
-    isActive: false,
-    isPending: true
-  },
-];
-
 export default function UserManagement() {
-  const [users, setUsers] = useState<User[]>(mockUsers);
+  const { getAllUsers, approveUser, rejectUser, rechargeRequests, approveRecharge, rejectRecharge } = useData();
+  const { refreshUser } = useAuth();
+  const [users, setUsers] = useState<User[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [showAddBalance, setShowAddBalance] = useState<string | null>(null);
   const [balanceAmount, setBalanceAmount] = useState('');
   const [filterType, setFilterType] = useState<'all' | 'active' | 'pending'>('all');
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    loadUsers();
+  }, []);
+
+  const loadUsers = async () => {
+    setLoading(true);
+    try {
+      const usersData = await getAllUsers();
+      setUsers(usersData);
+    } catch (error) {
+      console.error('Error loading users:', error);
+      toast.error('Error al cargar usuarios');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const filteredUsers = users.filter(user => {
     const matchesSearch = user.username.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -68,71 +76,51 @@ export default function UserManagement() {
   const pendingUsers = users.filter(user => user.isPending);
   const totalBalance = users.reduce((sum, user) => sum + user.walletBalance, 0);
 
-  const handleApproveUser = (userId: string) => {
-    setUsers(users.map(user => 
-      user.id === userId 
-        ? { ...user, isPending: false, isActive: true }
-        : user
-    ));
-    
-    toast.success('Usuario aprobado exitosamente', {
-      icon: '✅',
-      duration: 3000,
-    });
-  };
-
-  const handleRejectUser = (userId: string) => {
-    setUsers(users.filter(user => user.id !== userId));
-    
-    toast.success('Usuario rechazado y eliminado', {
-      icon: '🗑️',
-      duration: 3000,
-    });
-  };
-
-  const handleAddBalance = (userId: string) => {
-    const amount = parseFloat(balanceAmount);
-    if (isNaN(amount) || amount <= 0) {
-      toast.error('Ingresa un monto válido');
-      return;
+  const handleApproveUser = async (userId: string) => {
+    try {
+      await approveUser(userId);
+      await loadUsers();
+      await refreshUser();
+    } catch (error) {
+      console.error('Error approving user:', error);
     }
-
-    setUsers(users.map(user => 
-      user.id === userId 
-        ? { ...user, walletBalance: user.walletBalance + amount }
-        : user
-    ));
-
-    setShowAddBalance(null);
-    setBalanceAmount('');
-    
-    toast.success(`S/ ${amount.toFixed(2)} agregados al saldo`, {
-      icon: '💰',
-      duration: 3000,
-    });
   };
 
-  const handleDeleteUser = (userId: string) => {
-    setUsers(users.filter(user => user.id !== userId));
-    toast.success('Usuario eliminado', {
-      icon: '🗑️',
-      duration: 3000,
-    });
+  const handleRejectUser = async (userId: string) => {
+    try {
+      await rejectUser(userId);
+      await loadUsers();
+    } catch (error) {
+      console.error('Error rejecting user:', error);
+    }
   };
 
-  const toggleUserStatus = (userId: string) => {
-    setUsers(users.map(user => 
-      user.id === userId 
-        ? { ...user, isActive: !user.isActive }
-        : user
-    ));
-    
-    const user = users.find(u => u.id === userId);
-    toast.success(`Usuario ${user?.isActive ? 'desactivado' : 'activado'}`, {
-      icon: user?.isActive ? '🔒' : '🔓',
-      duration: 3000,
-    });
+  const handleApproveRecharge = async (requestId: string) => {
+    try {
+      await approveRecharge(requestId);
+      await loadUsers();
+    } catch (error) {
+      console.error('Error approving recharge:', error);
+    }
   };
+
+  const handleRejectRecharge = async (requestId: string) => {
+    try {
+      await rejectRecharge(requestId);
+    } catch (error) {
+      console.error('Error rejecting recharge:', error);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="p-4 space-y-6 mobile-padding">
+        <div className="flex items-center justify-center py-12">
+          <div className="w-8 h-8 border-4 border-nexy-blue-600 border-t-transparent rounded-full animate-spin"></div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="p-4 space-y-6 mobile-padding">
@@ -142,6 +130,13 @@ export default function UserManagement() {
           <h1 className="text-2xl font-bold text-gray-50">Gestión de Usuarios</h1>
           <p className="text-gray-400">Administra tu base de usuarios y aprobaciones</p>
         </div>
+        <button
+          onClick={loadUsers}
+          className="bg-gradient-to-r from-nexy-blue-400 to-nexy-blue-600 text-white px-4 py-2 rounded-xl font-semibold hover:from-nexy-blue-500 hover:to-nexy-blue-700 transition-all flex items-center shadow-glow-blue transform hover:scale-105"
+        >
+          <RefreshCw className="h-4 w-4 mr-2" />
+          Actualizar
+        </button>
       </div>
 
       {/* Stats */}
@@ -169,13 +164,56 @@ export default function UserManagement() {
         <div className="bg-slate-800 border border-slate-700 rounded-xl p-4 shadow-lg">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-400">Total Saldos</p>
-              <p className="text-2xl font-bold text-gray-50">S/ {totalBalance.toFixed(2)}</p>
+              <p className="text-sm text-gray-400">Solicitudes</p>
+              <p className="text-2xl font-bold text-nexy-blue-400">{rechargeRequests.length}</p>
             </div>
             <Wallet className="h-8 w-8 text-nexy-blue-400" />
           </div>
         </div>
       </div>
+
+      {/* Recharge Requests */}
+      {rechargeRequests.length > 0 && (
+        <div className="bg-slate-800 border border-slate-700 rounded-xl shadow-lg animate-slide-up">
+          <div className="p-4 border-b border-slate-700">
+            <h2 className="text-lg font-bold text-gray-50 flex items-center">
+              <DollarSign className="h-5 w-5 mr-2" />
+              Solicitudes de Recarga Pendientes ({rechargeRequests.length})
+            </h2>
+          </div>
+          <div className="divide-y divide-slate-700">
+            {rechargeRequests.map((request) => (
+              <div key={request.id} className="p-4 flex items-center justify-between hover:bg-slate-700/50 transition-colors">
+                <div>
+                  <p className="font-semibold text-gray-50">{request.username}</p>
+                  <p className="text-sm text-gray-400">
+                    S/ {request.amount.toFixed(2)} • {request.method}
+                  </p>
+                  <p className="text-xs text-gray-500">
+                    {request.createdAt.toLocaleDateString()} {request.createdAt.toLocaleTimeString()}
+                  </p>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <button
+                    onClick={() => handleApproveRecharge(request.id)}
+                    className="p-2 text-gray-400 hover:text-green-400 hover:bg-slate-600 rounded-lg transition-colors"
+                    title="Aprobar recarga"
+                  >
+                    <CheckCircle className="h-4 w-4" />
+                  </button>
+                  <button
+                    onClick={() => handleRejectRecharge(request.id)}
+                    className="p-2 text-gray-400 hover:text-nexy-rose-500 hover:bg-slate-600 rounded-lg transition-colors"
+                    title="Rechazar recarga"
+                  >
+                    <XCircle className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Search and Filters */}
       <div className="space-y-3 animate-slide-up">
@@ -308,29 +346,7 @@ export default function UserManagement() {
                             </button>
                           </>
                         ) : (
-                          <>
-                            <button
-                              onClick={() => setShowAddBalance(user.id)}
-                              className="p-2 text-gray-400 hover:text-green-400 hover:bg-slate-600 rounded-lg transition-colors"
-                              title="Agregar saldo"
-                            >
-                              <Plus className="h-4 w-4" />
-                            </button>
-                            <button
-                              onClick={() => toggleUserStatus(user.id)}
-                              className="p-2 text-gray-400 hover:text-yellow-400 hover:bg-slate-600 rounded-lg transition-colors"
-                              title={user.isActive ? 'Desactivar' : 'Activar'}
-                            >
-                              {user.isActive ? <UserX className="h-4 w-4" /> : <UserCheck className="h-4 w-4" />}
-                            </button>
-                            <button
-                              onClick={() => handleDeleteUser(user.id)}
-                              className="p-2 text-gray-400 hover:text-nexy-rose-500 hover:bg-slate-600 rounded-lg transition-colors"
-                              title="Eliminar usuario"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </button>
-                          </>
+                          <span className="text-xs text-gray-500">Usuario aprobado</span>
                         )}
                       </div>
                     </td>
@@ -341,68 +357,6 @@ export default function UserManagement() {
           </div>
         )}
       </div>
-
-      {/* Add Balance Modal */}
-      {showAddBalance && (
-        <div className="fixed inset-0 bg-black bg-opacity-80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-slate-800 border border-slate-700 rounded-2xl p-6 w-full max-w-md shadow-glow-blue animate-slide-up">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-bold text-gray-50">Agregar Saldo</h3>
-              <button
-                onClick={() => setShowAddBalance(null)}
-                className="p-2 text-gray-400 hover:text-gray-300 hover:bg-slate-700 rounded-lg transition-colors"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-
-            <div className="mb-4">
-              <p className="text-gray-400">
-                Usuario: <span className="font-semibold text-gray-50">
-                  {users.find(u => u.id === showAddBalance)?.username}
-                </span>
-              </p>
-              <p className="text-gray-400">
-                Saldo actual: <span className="font-semibold text-green-400">
-                  S/ {users.find(u => u.id === showAddBalance)?.walletBalance.toFixed(2)}
-                </span>
-              </p>
-            </div>
-
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-semibold text-gray-300 mb-1">
-                  Monto a Agregar (S/)
-                </label>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={balanceAmount}
-                  onChange={(e) => setBalanceAmount(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-gray-50 placeholder-gray-400 focus:ring-2 focus:ring-nexy-blue-400 focus:border-transparent transition-all"
-                  placeholder="0.00"
-                />
-              </div>
-            </div>
-
-            <div className="flex space-x-3 mt-6">
-              <button
-                onClick={() => setShowAddBalance(null)}
-                className="flex-1 px-4 py-2 border border-slate-600 text-gray-300 rounded-lg hover:bg-slate-700 transition-colors"
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={() => handleAddBalance(showAddBalance)}
-                className="flex-1 px-4 py-2 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-lg hover:from-green-600 hover:to-emerald-700 transition-all flex items-center justify-center shadow-glow-green transform hover:scale-105"
-              >
-                <DollarSign className="h-4 w-4 mr-2" />
-                Agregar Saldo
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
