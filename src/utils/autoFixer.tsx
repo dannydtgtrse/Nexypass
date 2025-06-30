@@ -3,6 +3,7 @@
  * Detecta y corrige automáticamente errores comunes
  */
 
+import React from 'react';
 import { LocalStorageDB } from '../lib/supabase';
 import toast from 'react-hot-toast';
 
@@ -147,8 +148,8 @@ export class AutoFixer {
       clearTimeout(highestTimeoutId);
 
       // Forzar garbage collection si está disponible
-      if (window.gc) {
-        window.gc();
+      if ((window as any).gc) {
+        (window as any).gc();
       }
     } catch (error) {
       console.error('Error fixing memory leaks:', error);
@@ -165,8 +166,10 @@ export class AutoFixer {
       // Limpiar modales huérfanos
       const modals = document.querySelectorAll('[role="dialog"], .modal, .overlay');
       modals.forEach(modal => {
-        if (modal.style.display === 'none' || modal.style.visibility === 'hidden') {
-          modal.remove();
+        if (modal instanceof HTMLElement) {
+          if (modal.style.display === 'none' || modal.style.visibility === 'hidden') {
+            modal.remove();
+          }
         }
       });
 
@@ -235,7 +238,7 @@ export class AutoFixer {
       // Verificar conectividad
       if (!navigator.onLine) {
         toast.custom((t) => (
-          <div className="bg-slate-800 border border-yellow-500/30 rounded-xl p-4 text-center shadow-glow-blue">
+          <div className="bg-slate-800 border border-yellow-500/30 rounded-xl p-4 text-center shadow-lg">
             <p className="text-yellow-400 font-semibold">📱 Modo Offline Detectado</p>
             <p className="text-gray-300 text-sm mt-1">Sistema funcionando con almacenamiento local</p>
           </div>
