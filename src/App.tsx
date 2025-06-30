@@ -9,10 +9,10 @@ import AuthScreen from './screens/AuthScreen';
 import UserDashboard from './screens/UserDashboard';
 import ProviderDashboard from './screens/ProviderDashboard';
 import { useAuth } from './hooks/useAuth';
-import { Clock } from 'lucide-react';
+import { Clock, X } from 'lucide-react';
 
 function AppContent() {
-  const { user, loading } = useAuth();
+  const { user, loading, logout } = useAuth();
 
   if (loading) {
     return (
@@ -43,7 +43,16 @@ function AppContent() {
                 <UserDashboard />
               ) : (
                 <div className="h-screen flex items-center justify-center bg-slate-900 p-4">
-                  <div className="bg-slate-800 border border-yellow-500/30 rounded-2xl p-8 max-w-md w-full text-center shadow-glow-blue animate-slide-up">
+                  <div className="bg-slate-800 border border-yellow-500/30 rounded-2xl p-8 max-w-md w-full text-center shadow-glow-blue animate-slide-up relative">
+                    {/* Botón X para regresar */}
+                    <button
+                      onClick={logout}
+                      className="absolute top-4 right-4 p-2 text-gray-400 hover:text-gray-300 hover:bg-slate-700 rounded-lg transition-colors"
+                      title="Cerrar sesión y regresar"
+                    >
+                      <X className="h-5 w-5" />
+                    </button>
+
                     <div className="w-16 h-16 bg-yellow-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
                       <Clock className="h-8 w-8 text-yellow-400" />
                     </div>
